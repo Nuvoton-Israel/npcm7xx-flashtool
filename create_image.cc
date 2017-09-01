@@ -87,6 +87,37 @@ int SetFileContents(const string& file_name, const vector<uint8_t>& buffer) {
 
 } // namespace
 
+class BootBlockImage {
+ public:
+  // BOOT.U.P or "P.U.TOOB" in Little Endian
+  static const uint64_t kBootBlockStartTag = 0x424f4f54aa550750;
+
+  static int CreateImage(const string& binary_name, const string& image_name,
+                         uint32_t version) {
+    vector<uint8_t> image;
+    int ret = GetFileContents(binary_name, &image);
+    if (ret < 0) {
+      return ret;
+    }
+
+    ImageHeader header;
+    header.set_start_tag(kBootBlockStartTag);
+    // TODO: Add support for image signature.
+    header.set_fiu0_drd_cfg(0x030011bb);
+    header.set_fiu_clk_divider(0x04);
+    // TODO: Should this be more configurable?
+    header.set_boot_block_magic(0x0000000100000002);
+    header.set_dest_addr(0xfffd5e00);
+    header.set_code_size(image.size());
+    header.set_version(version);
+    vector<uint8_t> raw_header;
+    header.ToBuffer(&raw_header);
+
+    image.insert(image.begin(), raw_header.begin(), raw_header.end());
+    return SetFileContents(image_name, image);
+  }
+};
+
 class UbootImage {
  public:
   // KLBTOOBU or "UBOOTBLK" in Little Endian
@@ -119,10 +150,23 @@ class UbootImage {
 }  // namespace tools
 
 int main(int argc, char* argv[]) {
-  if (argc != 3) {
-    std::cout << "expected image-in name and image-out name" << std::endl;
+  if (argc != 4) {
+    std::cout << "expected binary type, image-in name and image-out name" << std::endl;
+    return 1;
   }
-  int ret = tools::UbootImage::CreateImage(argv[1], argv[2], 0);
+
+  std::string binary_type(argv[1]);
+  int ret = 0;
+  if (binary_type == "--bootblock") {
+    // TODO: We should probably make the version a command line option.
+    ret = tools::BootBlockImage::CreateImage(argv[2], argv[3], 0x00000201);
+  } else if (binary_type == "--uboot") {
+    ret = tools::UbootImage::CreateImage(argv[2], argv[3], 0);
+  } else {
+    std::cout << "invalid binary type: " << binary_type;
+    return 1;
+  }
+
   if (ret < 0) {
     std::cout << "error occurred when creating image: "
               << strerror(-ret) << std::endl;

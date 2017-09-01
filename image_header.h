@@ -34,6 +34,7 @@ class ImageHeader {
   const ImageSignature& image_signature() const { return image_signature_; }
   uint32_t fiu0_drd_cfg() const { return fiu0_drd_cfg_; }
   uint8_t fiu_clk_divider() const { return fiu_clk_divider_; }
+  uint64_t boot_block_magic() const { return boot_block_magic_; }
   uint32_t dest_addr() const { return dest_addr_; }
   uint32_t code_size() const { return code_size_; }
   uint32_t version() const { return version_; }
@@ -44,6 +45,7 @@ class ImageHeader {
   void set_image_signature(const ImageSignature& image_signature) { image_signature_ = image_signature; }
   void set_fiu0_drd_cfg(uint32_t fiu0_drd_cfg) { fiu0_drd_cfg_ = fiu0_drd_cfg; }
   void set_fiu_clk_divider(uint8_t fiu_clk_divider) { fiu_clk_divider_ = fiu_clk_divider; }
+  void set_boot_block_magic(uint64_t boot_block_magic) { boot_block_magic_ = boot_block_magic; }
   void set_dest_addr(uint32_t dest_addr) { dest_addr_ = dest_addr; }
   void set_code_size(uint32_t code_size) { code_size_ = code_size; }
   void set_version(uint32_t version) { version_ = version; }
@@ -55,6 +57,7 @@ class ImageHeader {
   ImageSignature image_signature_;
   uint32_t fiu0_drd_cfg_ = 0;
   uint8_t fiu_clk_divider_ = 0;
+  uint64_t boot_block_magic_ = 0xffffffffffffffff;
   uint32_t dest_addr_ = 0;
   uint32_t code_size_ = 0;
   uint32_t version_ = 0;
