@@ -134,7 +134,7 @@ class UbootImage {
     ImageHeader header;
     header.set_start_tag(kUbootStartTag);
     // TODO: Add support for image signature.
-    header.set_fiu0_drd_cfg(0x030011bb);
+    header.set_fiu0_drd_cfg(0x030111bc);
     header.set_fiu_clk_divider(0x00);
     header.set_dest_addr(0x00008000);
     header.set_code_size(image.size());
