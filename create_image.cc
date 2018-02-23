@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -87,67 +88,66 @@ int SetFileContents(const string& file_name, const vector<uint8_t>& buffer) {
 
 } // namespace
 
-class BootBlockImage {
+class ImageBuilder {
+ public:
+  virtual ImageHeader ConstructImageSpecificHeader() = 0;
+
+  virtual int CreateImage(const string& binary_name,
+                          const string& image_name,
+                          uint32_t version) {
+    vector<uint8_t> image;
+    int ret = GetFileContents(binary_name, &image);
+    if (ret < 0) {
+      return ret;
+    }
+
+    ImageHeader header = ConstructImageSpecificHeader();
+    // TODO: Add support for image signature.
+    header.set_fiu0_drd_cfg(0x030011bb);
+    header.set_fiu_clk_divider(0x04);
+    header.set_code_size(image.size());
+    header.set_version(version);
+    vector<uint8_t> raw_header;
+    header.ToBuffer(&raw_header);
+
+    image.insert(image.begin(), raw_header.begin(), raw_header.end());
+    return SetFileContents(image_name, image);
+  }
+};
+
+class BootBlockImageBuilder : public ImageBuilder {
  public:
   // BOOT.U.P or "P.U.TOOB" in Little Endian
   static const uint64_t kBootBlockStartTag = 0x424f4f54aa550750;
 
-  static int CreateImage(const string& binary_name, const string& image_name,
-                         uint32_t version) {
-    vector<uint8_t> image;
-    int ret = GetFileContents(binary_name, &image);
-    if (ret < 0) {
-      return ret;
-    }
-
+  ImageHeader ConstructImageSpecificHeader() override {
     ImageHeader header;
     header.set_start_tag(kBootBlockStartTag);
-    // TODO: Add support for image signature.
-    header.set_fiu0_drd_cfg(0x030011bb);
-    header.set_fiu_clk_divider(0x04);
     // TODO: Should this be more configurable?
     header.set_boot_block_magic(0x0000000100000002);
     header.set_dest_addr(0xfffd5e00);
-    header.set_code_size(image.size());
-    header.set_version(version);
-    vector<uint8_t> raw_header;
-    header.ToBuffer(&raw_header);
-
-    image.insert(image.begin(), raw_header.begin(), raw_header.end());
-    return SetFileContents(image_name, image);
+    return header;
   }
 };
 
-class UbootImage {
+class UbootImageBuilder : public ImageBuilder {
  public:
   // KLBTOOBU or "UBOOTBLK" in Little Endian
   static const uint64_t kUbootStartTag = 0x4b4c42544f4f4255;
 
-  static int CreateImage(const string& binary_name, const string& image_name,
-                         uint32_t version) {
-    vector<uint8_t> image;
-    int ret = GetFileContents(binary_name, &image);
-    if (ret < 0) {
-      return ret;
-    }
-
+  ImageHeader ConstructImageSpecificHeader() override {
     ImageHeader header;
     header.set_start_tag(kUbootStartTag);
-    // TODO: Add support for image signature.
-    header.set_fiu0_drd_cfg(0x030111bc);
-    header.set_fiu_clk_divider(0x00);
     header.set_dest_addr(0x00008000);
-    header.set_code_size(image.size());
-    header.set_version(version);
-    vector<uint8_t> raw_header;
-    header.ToBuffer(&raw_header);
-
-    image.insert(image.begin(), raw_header.begin(), raw_header.end());
-    return SetFileContents(image_name, image);
+    return header;
   }
 };
 
 }  // namespace tools
+
+using tools::BootBlockImageBuilder;
+using tools::ImageBuilder;
+using tools::UbootImageBuilder;
 
 int main(int argc, char* argv[]) {
   if (argc != 4) {
@@ -155,22 +155,28 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  std::string binary_type(argv[1]);
-  int ret = 0;
+  const std::string binary_type(argv[1]);
+  std::unique_ptr<ImageBuilder> image_builder;
+  uint32_t version = 0;
   if (binary_type == "--bootblock") {
     // TODO: We should probably make the version a command line option.
-    ret = tools::BootBlockImage::CreateImage(argv[2], argv[3], 0x00000201);
+    version = 0x00000201;
+    image_builder = std::unique_ptr<ImageBuilder>(new BootBlockImageBuilder());
   } else if (binary_type == "--uboot") {
-    ret = tools::UbootImage::CreateImage(argv[2], argv[3], 0);
+    image_builder = std::unique_ptr<ImageBuilder>(new UbootImageBuilder());
   } else {
     std::cout << "invalid binary type: " << binary_type;
     return 1;
   }
 
+  const std::string binary_name(argv[2]);
+  const std::string image_name(argv[3]);
+  int ret = image_builder->CreateImage(binary_name, image_name, version);
   if (ret < 0) {
     std::cout << "error occurred when creating image: "
               << strerror(-ret) << std::endl;
     return 1;
   }
+
   return 0;
 }
