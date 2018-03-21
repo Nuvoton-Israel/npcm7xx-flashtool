@@ -15,5 +15,10 @@ sudo make install
 ## Usage
 
 ```bash
-create_image [--bootblock | --uboot] [input file] [output file]
+create_image <--bootblock | --uboot>
+             [--fiu0_drd_cfg=M] [--fiu_clk_divider=N]
+             <input file> <output file>
 ```
+
+Where `M` is an unsigned hexadecimal number which will fit in 32 bits and `N` is
+a unsigned hexadecimal number which will fit in 8 bits.

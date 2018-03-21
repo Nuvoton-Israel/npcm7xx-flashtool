@@ -14,6 +14,7 @@
 
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -88,27 +89,25 @@ int SetFileContents(const string& file_name, const vector<uint8_t>& buffer) {
 
 } // namespace
 
-class BootBlockImage {
+class ImageBuilder {
  public:
-  // BOOT.U.P or "P.U.TOOB" in Little Endian
-  static const uint64_t kBootBlockStartTag = 0x424f4f54aa550750;
+  virtual ImageHeader ConstructImageSpecificHeader() = 0;
 
-  static int CreateImage(const string& binary_name, const string& image_name,
-                         uint32_t version) {
+  virtual int CreateImage(const string& binary_name,
+                          const string& image_name,
+                          uint32_t fiu0_drd_cfg,
+                          uint8_t fiu_clk_divider,
+                          uint32_t version) {
     vector<uint8_t> image;
     int ret = GetFileContents(binary_name, &image);
     if (ret < 0) {
       return ret;
     }
 
-    ImageHeader header;
-    header.set_start_tag(kBootBlockStartTag);
+    ImageHeader header = ConstructImageSpecificHeader();
     // TODO: Add support for image signature.
-    header.set_fiu0_drd_cfg(0x030011bb);
-    header.set_fiu_clk_divider(0x04);
-    // TODO: Should this be more configurable?
-    header.set_boot_block_magic(0x0000000100000002);
-    header.set_dest_addr(0xfffd5e00);
+    header.set_fiu0_drd_cfg(fiu0_drd_cfg);
+    header.set_fiu_clk_divider(fiu_clk_divider);
     header.set_code_size(image.size());
     header.set_version(version);
     vector<uint8_t> raw_header;
@@ -119,59 +118,188 @@ class BootBlockImage {
   }
 };
 
-class UbootImage {
+class BootBlockImageBuilder : public ImageBuilder {
+ public:
+  // BOOT.U.P or "P.U.TOOB" in Little Endian
+  static const uint64_t kBootBlockStartTag = 0x424f4f54aa550750;
+
+  ImageHeader ConstructImageSpecificHeader() override {
+    ImageHeader header;
+    header.set_start_tag(kBootBlockStartTag);
+    // TODO: Should this be more configurable?
+    header.set_boot_block_magic(0x0000000100000002);
+    header.set_dest_addr(0xfffd5e00);
+    return header;
+  }
+};
+
+class UbootImageBuilder : public ImageBuilder {
  public:
   // KLBTOOBU or "UBOOTBLK" in Little Endian
   static const uint64_t kUbootStartTag = 0x4b4c42544f4f4255;
 
-  static int CreateImage(const string& binary_name, const string& image_name,
-                         uint32_t version) {
-    vector<uint8_t> image;
-    int ret = GetFileContents(binary_name, &image);
-    if (ret < 0) {
-      return ret;
-    }
-
+  ImageHeader ConstructImageSpecificHeader() override {
     ImageHeader header;
     header.set_start_tag(kUbootStartTag);
-    // TODO: Add support for image signature.
-    header.set_fiu0_drd_cfg(0x030111bc);
-    header.set_fiu_clk_divider(0x00);
     header.set_dest_addr(0x00008000);
-    header.set_code_size(image.size());
-    header.set_version(version);
-    vector<uint8_t> raw_header;
-    header.ToBuffer(&raw_header);
-
-    image.insert(image.begin(), raw_header.begin(), raw_header.end());
-    return SetFileContents(image_name, image);
+    return header;
   }
 };
 
 }  // namespace tools
 
+using tools::BootBlockImageBuilder;
+using tools::ImageBuilder;
+using tools::UbootImageBuilder;
+
+struct Flags {
+  bool fiu0_drd_cfg_present = false;
+  uint32_t fiu0_drd_cfg_value = 0x030111bc;
+  bool fiu_clk_divider_present = false;
+  uint8_t fiu_clk_divider_value = 0x00;
+};
+
+bool SplitString(const string& input, const string& delimiter, string* left, string* right) {
+  string::size_type pos = input.find(delimiter);
+  if (pos == string::npos) {
+    return false;
+  }
+
+  *left = input.substr(0, pos);
+  *right = input.substr(pos + delimiter.size());
+  return true;
+}
+
+bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64_t* value) {
+  string flag_name;
+  string flag_value;
+  if (!SplitString(input, "=", &flag_name, &flag_value)) {
+    return false;
+  }
+
+  if (flag_name != expected_name) {
+    return false;
+  }
+
+  try {
+    *value = stoull(flag_value, nullptr, 16);
+  } catch (const std::exception& e) {
+    std::cout << "failed to parse integer: " << e.what();
+    return false;
+  }
+  return true;
+}
+
+bool ParseHexUint32Flag(char* argv[],
+                        int* index,
+                        const string& expected_name,
+                        uint32_t* value) {
+  uint64_t parsed_value;
+  if (ParseHexUint64Flag(argv[*index], expected_name, &parsed_value) &&
+      parsed_value < UINT32_MAX) {
+    *value = parsed_value;
+    (*index)++;
+    return true;
+  }
+  return false;
+}
+
+bool ParseHexUint8Flag(char* argv[],
+                       int* index,
+                       const string& expected_name,
+                       uint8_t* value) {
+  uint64_t parsed_value;
+  if (ParseHexUint64Flag(argv[*index], expected_name, &parsed_value) &&
+      parsed_value < UINT8_MAX) {
+    *value = parsed_value;
+    (*index)++;
+    return true;
+  }
+  return false;
+}
+
+bool ParseFiu0DrdCfg(char* argv[], int* index, Flags* flags) {
+  if (ParseHexUint32Flag(
+      argv, index, "--fiu0_drd_cfg", &flags->fiu0_drd_cfg_value)) {
+    flags->fiu0_drd_cfg_present = true;
+    return true;
+  }
+  return false;
+}
+
+bool ParseFiuClkDivider(char* argv[], int* index, Flags* flags) {
+  if (ParseHexUint8Flag(
+      argv, index, "--fiu_clk_divider", &flags->fiu_clk_divider_value)) {
+    flags->fiu_clk_divider_present = true;
+    return true;
+  }
+  return false;
+}
+
+Flags ParseFlags(char* argv[], int* index, int argc) {
+  vector<std::function<bool(char*[], int*, Flags*)>> parsers = {
+    ParseFiu0DrdCfg,
+    ParseFiuClkDivider,
+  };
+  Flags flags;
+  bool flag_parsed = true;
+  while (*index + 2 < argc && flag_parsed) {
+    flag_parsed = false;
+    for (std::function<bool(char*[], int*, Flags*)> parser : parsers) {
+      if (parser(argv, index, &flags)) {
+        flag_parsed = true;
+        break;
+      }
+    }
+  }
+  return flags;
+}
+
 int main(int argc, char* argv[]) {
-  if (argc != 4) {
-    std::cout << "expected binary type, image-in name and image-out name" << std::endl;
+  if (argc < 4) {
+    std::cout << "Must at least provide: binary type, image-in name,"
+              << " and image-out name" << std::endl;
     return 1;
   }
 
-  std::string binary_type(argv[1]);
-  int ret = 0;
+  const std::string binary_type(argv[1]);
+  std::unique_ptr<ImageBuilder> image_builder;
+  uint32_t version = 0;
   if (binary_type == "--bootblock") {
     // TODO: We should probably make the version a command line option.
-    ret = tools::BootBlockImage::CreateImage(argv[2], argv[3], 0x00000201);
+    version = 0x00000201;
+    image_builder = std::unique_ptr<ImageBuilder>(new BootBlockImageBuilder());
   } else if (binary_type == "--uboot") {
-    ret = tools::UbootImage::CreateImage(argv[2], argv[3], 0);
+    image_builder = std::unique_ptr<ImageBuilder>(new UbootImageBuilder());
   } else {
-    std::cout << "invalid binary type: " << binary_type;
+    std::cout << "invalid binary type: " << binary_type << std::endl;
     return 1;
   }
 
+  int argv_index = 2;
+
+  Flags flags = ParseFlags(argv, &argv_index, argc);
+  if (argv_index + 2 != argc) {
+    std::cout << "Too many or illegal arguments provided: ";
+    for (; argv_index < argc; argv_index++) {
+      std::cout << argv[argv_index] << " ";
+    }
+    std::cout << std::endl;
+    return 1;
+  }
+
+  const std::string binary_name(argv[argv_index++]);
+  const std::string image_name(argv[argv_index++]);
+  int ret = image_builder->CreateImage(binary_name,
+                                       image_name,
+                                       flags.fiu0_drd_cfg_value,
+                                       flags.fiu_clk_divider_value,
+                                       version);
   if (ret < 0) {
     std::cout << "error occurred when creating image: "
               << strerror(-ret) << std::endl;
     return 1;
   }
+
   return 0;
 }
