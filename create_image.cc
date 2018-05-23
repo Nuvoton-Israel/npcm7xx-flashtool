@@ -168,7 +168,10 @@ bool SplitString(const string& input, const string& delimiter, string* left, str
   return true;
 }
 
-bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64_t* value) {
+bool ParseUint64Flag(const string& input,
+                     const string& expected_name,
+                     int base,
+                     uint64_t* value) {
   string flag_name;
   string flag_value;
   if (!SplitString(input, "=", &flag_name, &flag_value)) {
@@ -180,7 +183,7 @@ bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64
   }
 
   try {
-    *value = stoull(flag_value, nullptr, 16);
+    *value = stoull(flag_value, nullptr, base);
   } catch (const std::exception& e) {
     std::cout << "failed to parse integer: " << e.what();
     return false;
@@ -188,12 +191,13 @@ bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64
   return true;
 }
 
-bool ParseHexUint32Flag(char* argv[],
-                        int* index,
-                        const string& expected_name,
-                        uint32_t* value) {
+bool ParseUint32Flag(char* argv[],
+                     int* index,
+                     const string& expected_name,
+                     int base,
+                     uint32_t* value) {
   uint64_t parsed_value;
-  if (ParseHexUint64Flag(argv[*index], expected_name, &parsed_value) &&
+  if (ParseUint64Flag(argv[*index], expected_name, base, &parsed_value) &&
       parsed_value < UINT32_MAX) {
     *value = parsed_value;
     (*index)++;
@@ -202,12 +206,13 @@ bool ParseHexUint32Flag(char* argv[],
   return false;
 }
 
-bool ParseHexUint8Flag(char* argv[],
-                       int* index,
-                       const string& expected_name,
-                       uint8_t* value) {
+bool ParseUint8Flag(char* argv[],
+                    int* index,
+                    const string& expected_name,
+                    int base,
+                    uint8_t* value) {
   uint64_t parsed_value;
-  if (ParseHexUint64Flag(argv[*index], expected_name, &parsed_value) &&
+  if (ParseUint64Flag(argv[*index], expected_name, base, &parsed_value) &&
       parsed_value < UINT8_MAX) {
     *value = parsed_value;
     (*index)++;
@@ -217,13 +222,13 @@ bool ParseHexUint8Flag(char* argv[],
 }
 
 bool ParseFiu0DrdCfg(char* argv[], int* index, Flags* flags) {
-  return ParseHexUint32Flag(argv, index, "--fiu0_drd_cfg",
-                            &flags->fiu0_drd_cfg);
+  return ParseUint32Flag(argv, index, "--fiu0_drd_cfg", 16,
+                         &flags->fiu0_drd_cfg);
 }
 
 bool ParseFiuClkDivider(char* argv[], int* index, Flags* flags) {
-  return ParseHexUint8Flag(argv, index, "--fiu_clk_divider",
-                           &flags->fiu_clk_divider);
+  return ParseUint8Flag(argv, index, "--fiu_clk_divider", 16,
+                        &flags->fiu_clk_divider);
 }
 
 Flags ParseFlags(char* argv[], int* index, int argc) {
