@@ -153,10 +153,8 @@ using tools::ImageBuilder;
 using tools::UbootImageBuilder;
 
 struct Flags {
-  bool fiu0_drd_cfg_present = false;
-  uint32_t fiu0_drd_cfg_value = 0x030111bc;
-  bool fiu_clk_divider_present = false;
-  uint8_t fiu_clk_divider_value = 0x00;
+  uint32_t fiu0_drd_cfg = 0x030111bc;
+  uint8_t fiu_clk_divider = 0x00;
 };
 
 bool SplitString(const string& input, const string& delimiter, string* left, string* right) {
@@ -219,21 +217,13 @@ bool ParseHexUint8Flag(char* argv[],
 }
 
 bool ParseFiu0DrdCfg(char* argv[], int* index, Flags* flags) {
-  if (ParseHexUint32Flag(
-      argv, index, "--fiu0_drd_cfg", &flags->fiu0_drd_cfg_value)) {
-    flags->fiu0_drd_cfg_present = true;
-    return true;
-  }
-  return false;
+  return ParseHexUint32Flag(argv, index, "--fiu0_drd_cfg",
+                            &flags->fiu0_drd_cfg);
 }
 
 bool ParseFiuClkDivider(char* argv[], int* index, Flags* flags) {
-  if (ParseHexUint8Flag(
-      argv, index, "--fiu_clk_divider", &flags->fiu_clk_divider_value)) {
-    flags->fiu_clk_divider_present = true;
-    return true;
-  }
-  return false;
+  return ParseHexUint8Flag(argv, index, "--fiu_clk_divider",
+                           &flags->fiu_clk_divider);
 }
 
 Flags ParseFlags(char* argv[], int* index, int argc) {
@@ -292,8 +282,8 @@ int main(int argc, char* argv[]) {
   const std::string image_name(argv[argv_index++]);
   int ret = image_builder->CreateImage(binary_name,
                                        image_name,
-                                       flags.fiu0_drd_cfg_value,
-                                       flags.fiu_clk_divider_value,
+                                       flags.fiu0_drd_cfg,
+                                       flags.fiu_clk_divider,
                                        version);
   if (ret < 0) {
     std::cout << "error occurred when creating image: "
