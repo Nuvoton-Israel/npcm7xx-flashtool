@@ -27,7 +27,10 @@ struct RawImageHeader {
   uint8_t fiu_clk_divider;
   std::array<uint8_t, 19> reserved_0;
   uint64_t boot_block_magic;
-  std::array<uint8_t, 24> reserved_1;
+  uint16_t mc_freq;
+  uint16_t cpu_freq;
+  uint8_t mc_cfg;
+  std::array<uint8_t, 19> reserved_1;
   uint32_t dest_addr;
   uint32_t code_size;
   uint32_t version;
@@ -43,6 +46,9 @@ void ImageHeader::ToBuffer(vector<uint8_t>* buffer) const {
   image_header->image_signature = image_signature_;
   image_header->fiu0_drd_cfg = LittleEndian::FromHost32(fiu0_drd_cfg_);
   image_header->fiu_clk_divider = fiu_clk_divider_;
+  image_header->mc_freq = mc_freq_;
+  image_header->cpu_freq = cpu_freq_;
+  image_header->mc_cfg = mc_cfg_;
   image_header->reserved_0.fill(0xff);
   image_header->boot_block_magic = LittleEndian::FromHost64(boot_block_magic_);
   image_header->reserved_1.fill(0xff);
@@ -61,6 +67,9 @@ int ImageHeader::FromBuffer(const vector<uint8_t>& buffer) {
   image_signature_ = image_header.image_signature;
   fiu0_drd_cfg_ = LittleEndian::ToHost32(image_header.fiu0_drd_cfg);
   fiu_clk_divider_ = image_header.fiu_clk_divider;
+  mc_freq_ = image_header.mc_freq;
+  cpu_freq_ = image_header.cpu_freq;
+  mc_cfg_ = image_header.mc_cfg;
   boot_block_magic_ = LittleEndian::ToHost64(image_header.boot_block_magic);
   dest_addr_ = LittleEndian::ToHost32(image_header.dest_addr);
   code_size_ = LittleEndian::ToHost32(image_header.code_size);

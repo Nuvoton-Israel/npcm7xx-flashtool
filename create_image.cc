@@ -97,6 +97,9 @@ class ImageBuilder {
                           const string& image_name,
                           uint32_t fiu0_drd_cfg,
                           uint8_t fiu_clk_divider,
+                          uint16_t mc_freq,
+                          uint16_t cpu_freq,
+                          uint8_t mc_cfg,
                           uint32_t version) {
     vector<uint8_t> image;
     int ret = GetFileContents(binary_name, &image);
@@ -108,6 +111,9 @@ class ImageBuilder {
     // TODO: Add support for image signature.
     header.set_fiu0_drd_cfg(fiu0_drd_cfg);
     header.set_fiu_clk_divider(fiu_clk_divider);
+    header.set_mc_freq(mc_freq);
+    header.set_cpu_freq(cpu_freq);
+    header.set_mc_cfg(mc_cfg);
     header.set_code_size(image.size());
     header.set_version(version);
     vector<uint8_t> raw_header;
@@ -155,6 +161,10 @@ using tools::UbootImageBuilder;
 struct Flags {
   uint32_t fiu0_drd_cfg = 0x030111bc;
   uint8_t fiu_clk_divider = 0x00;
+  uint16_t mc_freq = 800;
+  uint16_t cpu_freq = 800;
+  // TODO: Split out bits into bool flags
+  uint8_t mc_cfg = 0x1;
 };
 
 bool SplitString(const string& input, const string& delimiter, string* left, string* right) {
@@ -206,6 +216,21 @@ bool ParseUint32Flag(char* argv[],
   return false;
 }
 
+bool ParseUint16Flag(char* argv[],
+                     int* index,
+                     const string& expected_name,
+                     int base,
+                     uint16_t* value) {
+  uint64_t parsed_value;
+  if (ParseUint64Flag(argv[*index], expected_name, base, &parsed_value) &&
+      parsed_value < UINT16_MAX) {
+    *value = parsed_value;
+    (*index)++;
+    return true;
+  }
+  return false;
+}
+
 bool ParseUint8Flag(char* argv[],
                     int* index,
                     const string& expected_name,
@@ -231,10 +256,26 @@ bool ParseFiuClkDivider(char* argv[], int* index, Flags* flags) {
                         &flags->fiu_clk_divider);
 }
 
+// TODO: Check against the list of acceptable frequencies
+bool ParseMcFreq(char* argv[], int* index, Flags* flags) {
+  return ParseUint16Flag(argv, index, "--mc_freq", 10, &flags->mc_freq);
+}
+
+bool ParseCpuFreq(char* argv[], int* index, Flags* flags) {
+  return ParseUint16Flag(argv, index, "--cpu_freq", 10, &flags->cpu_freq);
+}
+
+bool ParseMcCfg(char* argv[], int* index, Flags* flags) {
+  return ParseUint8Flag(argv, index, "--mc_cfg", 16, &flags->mc_cfg);
+}
+
 Flags ParseFlags(char* argv[], int* index, int argc) {
   vector<std::function<bool(char*[], int*, Flags*)>> parsers = {
     ParseFiu0DrdCfg,
     ParseFiuClkDivider,
+    ParseMcFreq,
+    ParseCpuFreq,
+    ParseMcCfg,
   };
   Flags flags;
   bool flag_parsed = true;
@@ -289,6 +330,9 @@ int main(int argc, char* argv[]) {
                                        image_name,
                                        flags.fiu0_drd_cfg,
                                        flags.fiu_clk_divider,
+                                       flags.mc_freq,
+                                       flags.cpu_freq,
+                                       flags.mc_cfg,
                                        version);
   if (ret < 0) {
     std::cout << "error occurred when creating image: "
