@@ -105,15 +105,15 @@ class ImageBuilder {
     }
 
     ImageHeader header = ConstructImageSpecificHeader();
+	uint32_t padSize = (0x1000 - ((image.size()) % 0x1000)) % 0x1000;
     // TODO: Add support for image signature.
-    header.set_fiu0_drd_cfg(fiu0_drd_cfg);
-    header.set_fiu_clk_divider(fiu_clk_divider);
     header.set_code_size(image.size());
     header.set_version(version);
     vector<uint8_t> raw_header;
     header.ToBuffer(&raw_header);
 
     image.insert(image.begin(), raw_header.begin(), raw_header.end());
+	image.insert(image.end(), padSize, 0xff);
     return SetFileContents(image_name, image);
   }
 };
@@ -125,9 +125,18 @@ class BootBlockImageBuilder : public ImageBuilder {
 
   ImageHeader ConstructImageSpecificHeader() override {
     ImageHeader header;
+    uint8_t array_0[19];
+    uint8_t array_1[24];
+    memset(array_0, 0xff, sizeof(array_0));
+    memset(array_1, 0xff, sizeof(array_1));
+    *((uint32_t*)array_1) = 0x03200320;
+
     header.set_start_tag(kBootBlockStartTag);
-    // TODO: Should this be more configurable?
-    header.set_boot_block_magic(0x0000000100000002);
+  	header.set_fiu0_drd_cfg(0x030011BB);
+	header.set_fiu_clk_divider(0x4);
+    header.set_reserved_0(array_0);
+	header.set_boot_block_magic(0x0000006400000001);
+    header.set_reserved_1(array_1);
     header.set_dest_addr(0xfffd5e00);
     return header;
   }
@@ -139,9 +148,20 @@ class UbootImageBuilder : public ImageBuilder {
   static const uint64_t kUbootStartTag = 0x4b4c42544f4f4255;
 
   ImageHeader ConstructImageSpecificHeader() override {
-    ImageHeader header;
+    ImageHeader header;	
+    uint8_t array_0[19];
+    uint8_t array_1[24];
+    memset(array_0, 0x00, sizeof(array_0));
+    *((uint32_t*)(array_0 + 3)) = 0x030011BB;
+    memset(array_1, 0xff, sizeof(array_1));
+
     header.set_start_tag(kUbootStartTag);
-    header.set_dest_addr(0x00008000);
+  	header.set_fiu0_drd_cfg(0x030111BC);
+	header.set_fiu_clk_divider(0);
+	header.set_reserved_0(array_0);
+	header.set_boot_block_magic(0xffffffffffffffff);
+	header.set_reserved_1(array_1);
+    header.set_dest_addr(0x00008000);	
     return header;
   }
 };
@@ -264,10 +284,8 @@ int main(int argc, char* argv[]) {
 
   const std::string binary_type(argv[1]);
   std::unique_ptr<ImageBuilder> image_builder;
-  uint32_t version = 0;
+  uint32_t version = 0x00000201;
   if (binary_type == "--bootblock") {
-    // TODO: We should probably make the version a command line option.
-    version = 0x00000201;
     image_builder = std::unique_ptr<ImageBuilder>(new BootBlockImageBuilder());
   } else if (binary_type == "--uboot") {
     image_builder = std::unique_ptr<ImageBuilder>(new UbootImageBuilder());
