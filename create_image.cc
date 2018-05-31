@@ -97,6 +97,9 @@ class ImageBuilder {
                           const string& image_name,
                           uint32_t fiu0_drd_cfg,
                           uint8_t fiu_clk_divider,
+                          uint16_t mc_freq,
+                          uint16_t cpu_freq,
+                          uint8_t mc_cfg,
                           uint32_t version) {
     vector<uint8_t> image;
     int ret = GetFileContents(binary_name, &image);
@@ -108,6 +111,9 @@ class ImageBuilder {
     // TODO: Add support for image signature.
     header.set_fiu0_drd_cfg(fiu0_drd_cfg);
     header.set_fiu_clk_divider(fiu_clk_divider);
+    header.set_mc_freq(mc_freq);
+    header.set_cpu_freq(cpu_freq);
+    header.set_mc_cfg(mc_cfg);
     header.set_code_size(image.size());
     header.set_version(version);
     vector<uint8_t> raw_header;
@@ -153,10 +159,12 @@ using tools::ImageBuilder;
 using tools::UbootImageBuilder;
 
 struct Flags {
-  bool fiu0_drd_cfg_present = false;
-  uint32_t fiu0_drd_cfg_value = 0x030111bc;
-  bool fiu_clk_divider_present = false;
-  uint8_t fiu_clk_divider_value = 0x00;
+  uint32_t fiu0_drd_cfg = 0x030111bc;
+  uint8_t fiu_clk_divider = 0x00;
+  uint16_t mc_freq = 800;
+  uint16_t cpu_freq = 800;
+  // TODO: Split out bits into bool flags
+  uint8_t mc_cfg = 0x1;
 };
 
 bool SplitString(const string& input, const string& delimiter, string* left, string* right) {
@@ -170,7 +178,10 @@ bool SplitString(const string& input, const string& delimiter, string* left, str
   return true;
 }
 
-bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64_t* value) {
+bool ParseUint64Flag(const string& input,
+                     const string& expected_name,
+                     int base,
+                     uint64_t* value) {
   string flag_name;
   string flag_value;
   if (!SplitString(input, "=", &flag_name, &flag_value)) {
@@ -182,7 +193,7 @@ bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64
   }
 
   try {
-    *value = stoull(flag_value, nullptr, 16);
+    *value = stoull(flag_value, nullptr, base);
   } catch (const std::exception& e) {
     std::cout << "failed to parse integer: " << e.what();
     return false;
@@ -190,12 +201,13 @@ bool ParseHexUint64Flag(const string& input, const string& expected_name, uint64
   return true;
 }
 
-bool ParseHexUint32Flag(char* argv[],
-                        int* index,
-                        const string& expected_name,
-                        uint32_t* value) {
+bool ParseUint32Flag(char* argv[],
+                     int* index,
+                     const string& expected_name,
+                     int base,
+                     uint32_t* value) {
   uint64_t parsed_value;
-  if (ParseHexUint64Flag(argv[*index], expected_name, &parsed_value) &&
+  if (ParseUint64Flag(argv[*index], expected_name, base, &parsed_value) &&
       parsed_value < UINT32_MAX) {
     *value = parsed_value;
     (*index)++;
@@ -204,12 +216,28 @@ bool ParseHexUint32Flag(char* argv[],
   return false;
 }
 
-bool ParseHexUint8Flag(char* argv[],
-                       int* index,
-                       const string& expected_name,
-                       uint8_t* value) {
+bool ParseUint16Flag(char* argv[],
+                     int* index,
+                     const string& expected_name,
+                     int base,
+                     uint16_t* value) {
   uint64_t parsed_value;
-  if (ParseHexUint64Flag(argv[*index], expected_name, &parsed_value) &&
+  if (ParseUint64Flag(argv[*index], expected_name, base, &parsed_value) &&
+      parsed_value < UINT16_MAX) {
+    *value = parsed_value;
+    (*index)++;
+    return true;
+  }
+  return false;
+}
+
+bool ParseUint8Flag(char* argv[],
+                    int* index,
+                    const string& expected_name,
+                    int base,
+                    uint8_t* value) {
+  uint64_t parsed_value;
+  if (ParseUint64Flag(argv[*index], expected_name, base, &parsed_value) &&
       parsed_value < UINT8_MAX) {
     *value = parsed_value;
     (*index)++;
@@ -219,27 +247,35 @@ bool ParseHexUint8Flag(char* argv[],
 }
 
 bool ParseFiu0DrdCfg(char* argv[], int* index, Flags* flags) {
-  if (ParseHexUint32Flag(
-      argv, index, "--fiu0_drd_cfg", &flags->fiu0_drd_cfg_value)) {
-    flags->fiu0_drd_cfg_present = true;
-    return true;
-  }
-  return false;
+  return ParseUint32Flag(argv, index, "--fiu0_drd_cfg", 16,
+                         &flags->fiu0_drd_cfg);
 }
 
 bool ParseFiuClkDivider(char* argv[], int* index, Flags* flags) {
-  if (ParseHexUint8Flag(
-      argv, index, "--fiu_clk_divider", &flags->fiu_clk_divider_value)) {
-    flags->fiu_clk_divider_present = true;
-    return true;
-  }
-  return false;
+  return ParseUint8Flag(argv, index, "--fiu_clk_divider", 16,
+                        &flags->fiu_clk_divider);
+}
+
+// TODO: Check against the list of acceptable frequencies
+bool ParseMcFreq(char* argv[], int* index, Flags* flags) {
+  return ParseUint16Flag(argv, index, "--mc_freq", 10, &flags->mc_freq);
+}
+
+bool ParseCpuFreq(char* argv[], int* index, Flags* flags) {
+  return ParseUint16Flag(argv, index, "--cpu_freq", 10, &flags->cpu_freq);
+}
+
+bool ParseMcCfg(char* argv[], int* index, Flags* flags) {
+  return ParseUint8Flag(argv, index, "--mc_cfg", 16, &flags->mc_cfg);
 }
 
 Flags ParseFlags(char* argv[], int* index, int argc) {
   vector<std::function<bool(char*[], int*, Flags*)>> parsers = {
     ParseFiu0DrdCfg,
     ParseFiuClkDivider,
+    ParseMcFreq,
+    ParseCpuFreq,
+    ParseMcCfg,
   };
   Flags flags;
   bool flag_parsed = true;
@@ -292,8 +328,11 @@ int main(int argc, char* argv[]) {
   const std::string image_name(argv[argv_index++]);
   int ret = image_builder->CreateImage(binary_name,
                                        image_name,
-                                       flags.fiu0_drd_cfg_value,
-                                       flags.fiu_clk_divider_value,
+                                       flags.fiu0_drd_cfg,
+                                       flags.fiu_clk_divider,
+                                       flags.mc_freq,
+                                       flags.cpu_freq,
+                                       flags.mc_cfg,
                                        version);
   if (ret < 0) {
     std::cout << "error occurred when creating image: "
